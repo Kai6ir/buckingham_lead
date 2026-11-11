@@ -1,0 +1,252 @@
+# Buckingham Lead Generation — configuration
+# Secrets (API keys, SMTP / Twilio credentials) live in .env, never here.
+
+profile:
+  company_name: "Buckingham"
+  sender_name: ""              # who the outreach is signed by
+  sender_role: "Senior Business Development"
+  offering: >-
+    Managed futures, trend-following and CTA allocation solutions, liquid alternatives
+    and multi-strategy access for institutions.
+  ideal_customer: >-
+    Investment firms, asset managers, CTAs, allocators, family offices, pension or OCIO
+    consultants that are active in managed futures, trend following, CTA allocation,
+    liquid alternatives, crisis offset, systematic macro, or multi-strategy private markets.
+    Exclude news sites, job boards, directories, data vendors and academic pages.
+
+run:
+  target_leads: 100            # new discovery leads to add per run (after de-duplication)
+  candidate_multiplier: 1.5    # search for target * this many candidates (some get rejected)
+  planned_queries: 20          # how many search queries the LLM plans
+  queries_file: queries.txt    # seed keywords; used when no LLM is configured
+  pages_per_query: 3           # result pages per query per channel (10 results each)
+  top_n: 20                    # weekly list sent to Vishal
+
+sources:
+  google: true                 # company websites found through Google search
+  linkedin: true               # people found through public LinkedIn profile results
+  x: true                      # people found through public X (Twitter) profile results
+
+search:
+  gl: us
+  hl: en
+
+enrich:
+  workers: 6
+  request_timeout: 8
+  delay_range: [0.5, 1.5]      # polite random delay between requests to the same site
+  respect_robots: true
+  contact_paths: ["/contact", "/contact-us", "/about", "/about-us", "/team"]
+  max_contact_pages: 3
+
+llm:
+  enabled: true                # false = no LLM: keyword scoring, queries.txt, no message drafts
+  # provider: anthropic  (Claude)  |  openai_compatible  (OpenAI, Gemini, Groq, OpenRouter,
+  #                                  DeepSeek, Mistral, Ollama, LM Studio, vLLM, ...)
+  provider: anthropic
+  model: claude-opus-5-5       # any model id for the chosen provider
+  base_url: ""                 # openai_compatible only, e.g. https://api.openai.com/v1
+                               #   Gemini: https://generativelanguage.googleapis.com/v1beta/openai
+                               #   Ollama: http://localhost:11434/v1
+  # API key: LLM_API_KEY in .env (ANTHROPIC_API_KEY also works for provider: anthropic)
+
+outreach:
+  # ---- Sending is OFF until you switch it on. Every email is previewed first while approval_required is true.
+  send_enabled: false
+  approval_required: true
+  daily_cap: 50                # maximum emails per day
+  sending_window: [8, 18]      # local hours (recipient's region) when emails may go out
+  provider: brevo              # brevo (API, with open/click tracking) | smtp (no open tracking)
+  public_base_url: http://127.0.0.1:5057   # must be public for unsubscribe links and webhooks in real use
+  postal_address: ""           # required in the footer of every email, e.g. "Buckingham, 1 Example St, London"
+  require_lawful_basis_regions: [europe]   # no email to these regions until the contact has a lawful basis recorded
+  auto_enroll_min_score: 60    # discovered contacts scoring at least this (with an email) enter the default sequence
+  default_sequence: institutional_reengage
+
+  sequences:
+    - name: institutional_reengage
+      steps:
+        - {day: 0,  template: reengage_1}
+        - {day: 7,  template: reengage_2}
+        - {day: 14, template: reengage_3}
+
+  # Each template has a default variant (first email) and engaged / silent variants for follow-ups:
+  #   engaged = they opened or clicked the previous email; silent = they did not open it.
+  # DRAFT COPY — replace with the team's wording before turning sending on.
+  templates:
+    reengage_1:
+      default:
+        subject: "Managed futures and volatility — a short note for {first_name}"
+        body: |
+          Hi {first_name},
+
+          I'm reaching out from {company_name} with a short note on our managed futures and
+          options-based hedging programmes, which I thought might be relevant to {company}.
+
+          Would a 20-minute call in the next few weeks be useful?
+
+          Best regards,
+          {sender_name}
+    reengage_2:
+      default:
+        subject: "Following up — {company}"
+        body: |
+          Hi {first_name},
+
+          Following up on my note last week. Happy to send over a short overview of how our
+          programme manages P&L volatility if that is useful for {company}.
+
+          Best regards,
+          {sender_name}
+      engaged:
+        subject: "Thanks for looking — a quick question for {first_name}"
+        body: |
+          Hi {first_name},
+
+          Thanks for taking a look at our last note. Is there a specific part of our approach you'd
+          like more detail on? I can send a short factsheet or set up a call.
+
+          Best regards,
+          {sender_name}
+      silent:
+        subject: "Quick one for {first_name}"
+        body: |
+          Hi {first_name},
+
+          I know inboxes are busy, so one line: if managed futures or hedging overlays are on the
+          agenda at {company} this year, I'd be glad to share a short overview.
+
+          Best regards,
+          {sender_name}
+    reengage_3:
+      default:
+        subject: "Last note from me — {company}"
+        body: |
+          Hi {first_name},
+
+          This is my last note on this topic. If it is not relevant right now, just let me know and
+          I will not follow up again.
+
+          Best regards,
+          {sender_name}
+      engaged:
+        subject: "Happy to help, {first_name}"
+        body: |
+          Hi {first_name},
+
+          Last note from me. If a conversation makes sense later in the year, I'm easy to reach.
+
+          Best regards,
+          {sender_name}
+      silent:
+        subject: "Last note — {company}"
+        body: |
+          Hi {first_name},
+
+          Last note from me on this. If it is not relevant right now, just let me know.
+
+          Best regards,
+          {sender_name}
+
+firms:
+  # Introducing-broker screening: scan each IB's website, decide whether it RAISES CAPITAL for CTAs /
+  # managed futures (keep) or only does hedging / execution (exclude), score it, and draft a partner email.
+  target: 50                   # new firms to find online per run (on top of screening the master list)
+  target_countries:            # markets you want to prioritise (scored +weight below)
+    - United Kingdom
+    - Germany
+    - France
+    - Switzerland
+    - Netherlands
+    - Japan
+    - Hong Kong
+    - Singapore
+  enrich_existing: 40          # firms on the master list to screen (website scan + classify) per run
+  outreach_tier: A             # kept for reference; outreach now targets High-priority capital-raisers
+  tiers: {A: 60, B: 40}        # score cut-offs for A / B / C
+  weights:                     # points per signal; each point is written to SCORE REASONS
+    # IB-screening signals (website evidence) — these dominate the ranking
+    raises_for_cta: 45         # evidence the IB raises capital for CTAs / managed futures
+    raises_unclear: 8          # capital-raiser, but CTA fit not yet proven
+    mf_high: 20                # strong managed-futures / alternatives relevance
+    mf_medium: 10
+    investor_access: 8         # serves HNW / institutional investors
+    capital_raiser: 10         # classified as a capital-raising IB at all
+    hedging_only: -45          # agricultural / energy / commercial hedging only — exclude
+    execution_only: -25        # execution-only brokerage — exclude
+    # NFA registration signals (secondary)
+    cta: 25
+    cpo: 20
+    introducing_broker: 8
+    fcm: 10
+    forex: 5
+    swap: 5
+    nfa_approved: 10
+    nfa_pending: -8
+    independent: 4
+    target_country: 10
+    has_website: 5
+    has_work_email: 10
+    has_contact_name: 4
+    senior_title: 8
+
+storage:
+  db_path: data/leadgen.db
+  output_dir: outputs
+
+sheets:
+  enabled: false               # mirror all leads to a Google Sheet
+  spreadsheet_id: ""
+  worksheet: Leads
+  credentials_file: service_account.json
+
+delivery:
+  channel: email               # email | sms — where the top-N list goes (also editable in the dashboard)
+  recipient: ""                # email address for channel: email, phone in E.164 (+447700900123) for sms
+  enabled: false               # false = write the files only, send nothing
+
+smtp:
+  host: smtp.gmail.com
+  port: 587
+  sender: ""                   # From address for email delivery
+
+# Domains that are never treated as company leads (social, news, directories, job boards, ...)
+blocklist_domains:
+  - linkedin.com
+  - facebook.com
+  - instagram.com
+  - twitter.com
+  - x.com
+  - youtube.com
+  - reddit.com
+  - wikipedia.org
+  - crunchbase.com
+  - pitchbook.com
+  - zoominfo.com
+  - rocketreach.co
+  - apollo.io
+  - bloomberg.com
+  - reuters.com
+  - wsj.com
+  - ft.com
+  - cnbc.com
+  - forbes.com
+  - barrons.com
+  - marketwatch.com
+  - morningstar.com
+  - investopedia.com
+  - seekingalpha.com
+  - nasdaq.com
+  - sec.gov
+  - prnewswire.com
+  - businesswire.com
+  - globenewswire.com
+  - medium.com
+  - substack.com
+  - github.com
+  - google.com
+  - amazon.com
+  - glassdoor.com
+  - indeed.com
+  - yelp.com
+  - tripadvisor.com

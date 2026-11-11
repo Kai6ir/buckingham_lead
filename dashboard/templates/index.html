@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lead Bot · Business Development</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="logo">B</div>
+    <div>
+      <h1>{{ company or 'Buckingham' }} · Business Development</h1>
+      <p class="sub">Database → sequenced emails → engagement tracking · discovery on Google, LinkedIn and X</p>
+    </div>
+  </div>
+  <div class="status-wrap">
+    <span id="send-pill" class="pill pill-mode">Sending: …</span>
+    <span id="llm-pill" class="pill pill-mode">LLM: …</span>
+    <span id="status-pill" class="pill pill-idle">Idle</span>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button class="tab active" data-tab="overview">Overview</button>
+  <button class="tab" data-tab="database">Database</button>
+  <button class="tab" data-tab="outbox">Outbox <span id="outbox-badge" class="badge-count">0</span></button>
+  <button class="tab" data-tab="firms">NFA firms</button>
+  <button class="tab" data-tab="sequences">Sequences &amp; funnel</button>
+  <button class="tab" data-tab="discovery">Discovery</button>
+  <button class="tab" data-tab="settings">Settings</button>
+</nav>
+
+<main>
+  <!-- OVERVIEW -->
+  <section class="pane active" data-pane="overview">
+    <section class="metrics">
+      <div class="card metric">
+        <div class="metric-label">Contacts in database</div>
+        <div class="metric-value" id="m-total">0</div>
+        <div class="metric-foot"><span id="m-email">0</span> with email · <span id="m-discovered">0</span> discovered</div>
+      </div>
+      <div class="card metric">
+        <div class="metric-label">Emails sent (all time)</div>
+        <div class="metric-value" id="f-sent">0</div>
+        <div class="metric-foot">last 24h: <strong id="m-24h">0</strong> / cap <strong id="m-cap">0</strong></div>
+      </div>
+      <div class="card metric">
+        <div class="metric-label">Opened · clicked</div>
+        <div class="metric-value"><span id="f-opened">0</span><span class="muted"> · </span><span id="f-clicked">0</span></div>
+        <div class="metric-foot">Replies: <strong id="f-replied">0</strong> · unsubscribed: <strong id="f-unsub">0</strong></div>
+      </div>
+      <div class="card metric">
+        <div class="metric-label">Waiting for approval</div>
+        <div class="metric-value" id="f-pending">0</div>
+        <div class="metric-foot">Open the Outbox tab to preview and approve</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Discovery run</h2>
+        <span id="activity" class="activity"></span>
+      </div>
+      <ol id="stages" class="stages"></ol>
+    </section>
+
+    <section class="split">
+      <div class="card">
+        <div class="section-head"><h2>Live activity</h2>
+          <label class="toggle"><input type="checkbox" id="autoscroll" checked> auto-scroll</label></div>
+        <div id="log" class="log"></div>
+      </div>
+      <div class="card">
+        <div class="section-head"><h2>Recent sequence activity</h2></div>
+        <div class="table-wrap small-table">
+          <table><thead><tr><th>Contact</th><th>Sequence</th><th>Step</th><th>Status</th></tr></thead>
+            <tbody id="enroll-body"><tr><td colspan="4" class="muted">Nobody enrolled yet.</td></tr></tbody></table>
+        </div>
+      </div>
+    </section>
+  </section>
+
+  <!-- DATABASE -->
+  <section class="pane" data-pane="database">
+    <section class="card">
+      <div class="section-head">
+        <h2>Import your contact list</h2>
+        <span class="muted small">CSV or Excel. Duplicates (same email, LinkedIn or name + company) and suppressed addresses are skipped.</span>
+      </div>
+      <form id="import-form" class="row">
+        <input type="file" id="import-file" accept=".csv,.xlsx,.xlsm,.txt">
+        <button class="btn btn-primary" type="submit">Import</button>
+        <span id="import-result" class="message"></span>
+      </form>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Lawful basis (GDPR / PECR)</h2>
+        <span class="muted small">Europe contacts cannot be emailed until a basis is recorded. Record one only when you genuinely hold it.</span>
+      </div>
+      <div class="row">
+        <span>Europe contacts without a basis: <strong id="missing-basis">…</strong></span>
+        <select id="basis-choice">
+          <option value="existing relationship">existing relationship</option>
+          <option value="legitimate interest (B2B)">legitimate interest (B2B)</option>
+          <option value="consent">consent</option>
+          <option value="contract">contract</option>
+        </select>
+        <button class="btn" id="btn-basis-europe">Record for all Europe contacts without one</button>
+        <button class="btn" id="btn-basis-selected">Record for ticked contacts</button>
+      </div>
+      <p id="basis-msg" class="message small"></p>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Contacts</h2>
+        <div class="filters">
+          <input id="q" type="search" placeholder="Search name, company, email">
+          <select id="f-region">
+            <option value="">All regions</option>
+            <option value="americas">Americas</option>
+            <option value="europe">Europe</option>
+            <option value="asia-pacific">Asia-Pacific</option>
+            <option value="middle east">Middle East</option>
+            <option value="africa">Africa</option>
+            <option value="other">Other</option>
+            <option value="unknown">Unknown</option>
+          </select>
+          <select id="f-source">
+            <option value="">All sources</option>
+            <option value="import">Imported</option>
+            <option value="discovery">Discovered</option>
+          </select>
+          <select id="f-status">
+            <option value="">Any status</option>
+            <option value="active">Active</option>
+            <option value="replied">Replied</option>
+            <option value="unsubscribed">Unsubscribed</option>
+            <option value="bounced">Bounced</option>
+            <option value="do_not_contact">Do not contact</option>
+          </select>
+          <select id="enroll-seq"></select>
+          <button class="btn" id="btn-enroll-selected">Enrol selected</button>
+          <button class="btn" id="btn-enroll-filter">Enrol all matching</button>
+          <a class="btn btn-ghost" href="/files/contacts_latest.xlsx">Excel</a>
+        </div>
+      </div>
+      <p id="db-msg" class="message small"></p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th><input type="checkbox" id="check-all"></th><th>Name</th><th>Company</th><th>Email</th><th>Region</th><th>Source</th><th>Fit</th><th>Status</th></tr></thead>
+          <tbody id="contacts-body"><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+  </section>
+
+  <!-- OUTBOX -->
+  <section class="pane" data-pane="outbox">
+    <section class="card">
+      <div class="section-head">
+        <h2>Outbox — every email is previewed before it is sent</h2>
+        <div class="filters">
+          <select id="outbox-mode">
+            <option value="live">Live outbox</option>
+            <option value="demo">Demo outbox</option>
+          </select>
+          <select id="outbox-status">
+            <option value="draft">Waiting for approval</option>
+            <option value="approved">Approved, not yet sent</option>
+            <option value="sent">Sent</option>
+            <option value="rejected">Rejected or stopped</option>
+            <option value="failed">Failed</option>
+            <option value="">Everything</option>
+          </select>
+          <button class="btn" id="btn-approve-all">Approve all drafts</button>
+          <button class="btn btn-primary" id="btn-tick">Draft &amp; send due emails now</button>
+          <a class="btn btn-ghost" id="outbox-csv" href="/files/outbox.csv">Outbox CSV</a>
+        </div>
+      </div>
+      <p id="outbox-msg" class="message small"></p>
+      <div id="outbox-list" class="outbox"></div>
+    </section>
+  </section>
+
+  <!-- SEQUENCES & FUNNEL -->
+  <section class="pane" data-pane="sequences">
+    <section class="card">
+      <div class="section-head"><h2>Engagement funnel (all sequence emails)</h2></div>
+      <ol id="funnel" class="funnel"></ol>
+    </section>
+    <section class="split">
+      <div class="card">
+        <div class="section-head"><h2>Sequences</h2></div>
+        <div id="sequences" class="plan"></div>
+      </div>
+      <div class="card">
+        <div class="section-head"><h2>Enrolments</h2>
+          <select id="enroll-status">
+            <option value="">All</option>
+            <option value="active">Active</option>
+            <option value="completed">Completed</option>
+            <option value="replied">Replied</option>
+            <option value="unsubscribed">Unsubscribed</option>
+            <option value="bounced">Bounced</option>
+            <option value="paused">Paused</option>
+          </select>
+        </div>
+        <div class="table-wrap small-table">
+          <table><thead><tr><th>Contact</th><th>Sequence</th><th>Email #</th><th>Status</th><th>Next</th></tr></thead>
+            <tbody id="enrollments-body"><tr><td colspan="5" class="muted">None yet.</td></tr></tbody></table>
+        </div>
+      </div>
+    </section>
+  </section>
+
+  <!-- DISCOVERY -->
+  <section class="pane" data-pane="discovery">
+    <section class="card controls">
+      <div class="control-left">
+        <label class="field"><span>Mode</span>
+          <select id="mode">
+            <option value="live">Live — Google, LinkedIn and X via SerpApi</option>
+            <option value="demo">Demo — synthetic data, no API calls</option>
+          </select>
+        </label>
+        <div><p id="message" class="message"></p></div>
+      </div>
+      <div class="buttons">
+        <button id="btn-start" class="btn btn-primary">Start discovery</button>
+        <button id="btn-pause" class="btn">Pause</button>
+        <button id="btn-resume" class="btn" hidden>Resume</button>
+        <button id="btn-stop" class="btn btn-danger" disabled>Stop</button>
+      </div>
+    </section>
+    <section class="split">
+      <div class="card">
+        <div class="section-head"><h2>Search plan</h2><span class="muted small" id="plan-count"></span></div>
+        <div id="plan" class="plan"><span class="muted">No searches planned yet.</span></div>
+      </div>
+      <div class="card">
+        <div class="section-head"><h2>Newly added this run</h2><span class="muted small">last 40</span></div>
+        <div class="table-wrap small-table">
+          <table><thead><tr><th>Lead</th><th>Tier</th><th>Fit</th><th>Contact</th></tr></thead>
+            <tbody id="recent-body"><tr><td colspan="4" class="muted">Nothing added yet.</td></tr></tbody></table>
+        </div>
+      </div>
+    </section>
+    <section class="card">
+      <div class="section-head"><h2>Run history</h2></div>
+      <div class="table-wrap small-table">
+        <table><thead><tr><th>Run</th><th>Mode</th><th>Status</th><th>Started</th><th>Finished</th><th>Added</th><th>Duplicates</th><th>Errors</th></tr></thead>
+          <tbody id="runs-body"><tr><td colspan="8" class="muted">No runs yet.</td></tr></tbody></table>
+      </div>
+    </section>
+  </section>
+
+  <!-- NFA FIRMS -->
+  <section class="pane" data-pane="firms">
+    <section class="card">
+      <div class="section-head">
+        <h2>Master list (NFA registered firms)</h2>
+        <span class="muted small">Upload the boss's list. Its 20 columns are kept as they are; the bot adds contact, score and outreach columns after them.</span>
+      </div>
+      <form id="firm-import-form" class="row">
+        <input type="file" id="firm-import-file" accept=".xlsx,.xlsm">
+        <button class="btn btn-primary" type="submit">Load master list</button>
+        <span id="firm-import-result" class="message"></span>
+      </form>
+    </section>
+
+    <section class="card controls">
+      <div class="control-left">
+        <label class="field"><span>Mode</span>
+          <select id="firm-mode">
+            <option value="live">Live — scan websites via SerpApi</option>
+            <option value="demo">Demo — synthetic data, no API calls</option>
+          </select></label>
+        <div><p id="firm-message" class="message"></p></div>
+      </div>
+      <div class="buttons">
+        <button id="btn-firm-run" class="btn btn-primary">Screen IBs &amp; draft partner emails</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Introducing brokers</h2>
+        <div class="filters">
+          <select id="firm-ibtype">
+            <option value="">All types</option>
+            <option value="capital_raiser">Capital raiser</option>
+            <option value="hedger">Hedger</option>
+            <option value="execution_only">Execution-only</option>
+            <option value="uncertain">Uncertain</option>
+          </select>
+          <select id="firm-quality">
+            <option value="">Any lead quality</option>
+            <option value="qualified">Qualified</option>
+            <option value="uncertain">Uncertain</option>
+            <option value="irrelevant">Irrelevant</option>
+          </select>
+          <select id="firm-reco">
+            <option value="">Any recommendation</option>
+            <option value="High-priority review">High-priority</option>
+            <option value="Review">Review</option>
+            <option value="Exclude">Exclude</option>
+          </select>
+          <select id="firm-decision">
+            <option value="">Any decision</option>
+            <option value="keep">Kept</option>
+            <option value="exclude">Excluded</option>
+          </select>
+          <select id="firm-outreach">
+            <option value="">Any outreach</option><option value="draft">Email drafted</option>
+            <option value="none">Not yet emailed</option><option value="suppressed">Suppressed</option>
+          </select>
+          <a class="btn btn-ghost" id="firm-download" href="/files/NFA_Master_IB_List_latest.xlsx">Download list (Excel)</a>
+        </div>
+      </div>
+      <p id="firm-counts" class="small muted"></p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Firm</th><th>Type</th><th>Raises for CTAs</th><th>Segment</th><th>Contact</th><th>Score</th><th>Recommend</th><th>Evidence</th><th>Decision</th></tr></thead>
+          <tbody id="firms-body"><tr><td colspan="9" class="muted">Load the master list, then screen.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+  </section>
+
+  <!-- SETTINGS -->
+  <section class="pane" data-pane="settings">
+    <section class="split">
+      <div class="card">
+        <div class="section-head"><h2>Sending</h2></div>
+        <p class="small" id="send-note"></p>
+        <div class="row">
+          <button class="btn" id="btn-autopilot">Autopilot: off</button>
+          <span class="muted small">When on, the bot drafts, sends and checks replies every 10 minutes (approval still applies).</span>
+        </div>
+        <hr class="sep">
+        <h3>Brevo webhook</h3>
+        <p class="small muted">Paste this URL into Brevo → Settings → Webhooks, and tick: delivered, opened, clicked, hard bounce, unsubscribed, spam.</p>
+        <code id="webhook-url" class="code"></code>
+      </div>
+      <div class="card">
+        <div class="section-head"><h2>Weekly top list</h2></div>
+        <form id="delivery-form" class="delivery">
+          <label class="field"><span>Send to</span>
+            <select id="delivery-channel"><option value="email">Email</option><option value="sms">SMS</option></select></label>
+          <label class="field grow"><span id="recipient-label">Email address</span>
+            <input id="delivery-recipient" type="text" placeholder="name@company.com" autocomplete="off"></label>
+          <button class="btn" type="submit">Save</button>
+        </form>
+        <p id="delivery-note" class="message small"></p>
+      </div>
+    </section>
+  </section>
+</main>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
